@@ -17,4 +17,5 @@ public abstract class User {
     public String getEmail() { return email; }
     public String getPassword() { return password; }
     public String getRole() { return role; }
+    public String getName() { return name; }
 }
