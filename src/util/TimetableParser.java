@@ -1,7 +1,7 @@
 package util;
 
 import java.util.*;
-
+import model.Timetable;
 public class TimetableParser {
 
     public List<String> generateFreeSlots(Timetable timetable) {
