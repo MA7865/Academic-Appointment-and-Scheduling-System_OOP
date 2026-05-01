@@ -21,4 +21,12 @@ public abstract class User {
     public int getUserId() { return userId; }
     public String getEmail() { return email; }
     public String getPassword() { return password; }
+    public String getRole(){
+        if (this instanceof Student) return "STUDENT";
+        if (this instanceof Professor) return "PROFESSOR";
+        return "UNKNOWN";
+    }
+    public String getFirstName() { return firstName; }
+    public String getLastName() { return lastName; }
+    public String getPhone() { return phone; }
 }

@@ -7,6 +7,11 @@ import java.sql.*;
 public class UserDAO {
 
     public User getUserByEmail(String email) {
+        Connection conn = DBConnection.getConnection();
+        if (conn == null) {
+            System.out.println("Database connection failed");
+            return null;
+        }
         String query = """
             SELECT ue.user_id, ue.email, ud.password_hash, ud.role,
                    ud.first_name, ud.last_name, ud.phone_number,
@@ -18,8 +23,7 @@ public class UserDAO {
             WHERE ue.email = ?
         """;
 
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
+        try (conn;PreparedStatement stmt = conn.prepareStatement(query)) {
 
             stmt.setString(1, email);
             ResultSet rs = stmt.executeQuery();
