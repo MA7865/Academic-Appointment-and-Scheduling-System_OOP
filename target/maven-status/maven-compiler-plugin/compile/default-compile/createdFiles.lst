@@ -1,14 +1,10 @@
-priority\PriorityCalculator.class
 dao\TimeSlotDAO.class
 enums\AppointmentReason.class
-priority\ReasonPriority.class
-util\PriorityComparator.class
 service\AuthService.class
 model\Professor.class
+main\Main.class
 model\Timetable.class
-util\TimetableParser.class
 dao\TimetableDAO.class
-Main.class
 dao\DBConnection.class
 model\Student.class
 service\TimeSlotService.class
@@ -16,5 +12,4 @@ model\TimetableEntry.class
 dao\UserDAO.class
 enums\TimeSlotStatus.class
 model\User.class
-priority\YearPriority.class
 model\TimeSlot.class
