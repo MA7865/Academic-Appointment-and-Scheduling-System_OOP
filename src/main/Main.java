@@ -21,7 +21,6 @@ public class Main extends Application {
         primaryStage.setTitle("Appointment System");
         primaryStage.setWidth(800);
         primaryStage.setHeight(600);
-        primaryStage.setResizable(false);
 
         // start with login screen
         showLoginScreen();
