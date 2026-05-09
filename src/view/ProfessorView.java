@@ -4,6 +4,10 @@ import java.util.List;
 
 import enums.AppointmentStatus;
 import enums.TimeSlotStatus;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.DayOfWeek;
+import java.time.temporal.TemporalAdjusters;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -46,17 +50,18 @@ public class ProfessorView {
         Button waitlistBtn  = new Button("Waitlist Management");
         Button pastBtn  = new Button("Past Slots");
         Button upcomingBtn  = new Button("Upcoming Slots");
+        Button generateBtn  = new Button("Generate Slots");
         Button logoutBtn    = new Button("Logout");
 
         for (Button btn : new Button[]{
-                pendingBtn, waitlistBtn, pastBtn, upcomingBtn, logoutBtn}) {
+                pendingBtn, waitlistBtn, pastBtn, upcomingBtn,generateBtn, logoutBtn}) {
             btn.setPrefWidth(180);
             btn.setPrefHeight(35);
             btn.setFont(Font.font("Arial", 13));
         }
 
         VBox sidebar = new VBox(10,
-            pendingBtn, waitlistBtn, pastBtn, upcomingBtn, logoutBtn);
+            pendingBtn, waitlistBtn, pastBtn, upcomingBtn,generateBtn, logoutBtn);
         sidebar.setPadding(new Insets(20));
         sidebar.setPrefWidth(200);
         sidebar.setStyle("-fx-background-color: #addfd5;");
@@ -76,6 +81,8 @@ public class ProfessorView {
             contentArea.getChildren().setAll(buildPastWeekSlotsView(professor)));
         upcomingBtn.setOnAction(e ->
             contentArea.getChildren().setAll(buildUpcomingSlotsView(professor)));
+        generateBtn.setOnAction(e -> 
+            contentArea.getChildren().setAll(buildGenerateSlotsView(professor)));
         logoutBtn.setOnAction(e ->
             Main.showLoginScreen());
 
@@ -436,6 +443,175 @@ public class ProfessorView {
 
         container.getChildren().addAll(title, slotSelector, waitlistTable);
         return container;
+    }
+
+    // view for the generate slot button
+
+    private static VBox buildGenerateSlotsView(Professor professor) {
+    VBox layout = new VBox(15);
+    layout.setPadding(new Insets(20));
+    layout.setStyle("-fx-background-color: white;");
+
+    // 1. Header Title
+    Label header = new Label("Slot Management");
+    header.setFont(Font.font("Arial", FontWeight.BOLD, 20));
+
+    // 2. Manual Insert Button (Placed at the top of the workspace)
+    Button manualInsertBtn = new Button("+ Manually Insert Custom Slot");
+    manualInsertBtn.setStyle("-fx-background-color: #197c6f; -fx-text-fill: white; -fx-font-weight: bold;");
+    manualInsertBtn.setPrefWidth(250);
+    manualInsertBtn.setPrefHeight(40);
+    
+    // Action for Manual Insert
+    manualInsertBtn.setOnAction(e -> showManualInsertDialog(professor));
+
+    Separator separator = new Separator();
+
+    // 3. Template List Area
+    VBox templateList = new VBox(10);
+    service.SlotGeneratorService genService = new service.SlotGeneratorService();
+    List<model.SlotTemplate> templates = genService.getAllTemplates();
+
+    for (model.SlotTemplate temp : templates) {
+        HBox row = new HBox(20);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(12));
+        row.setStyle("-fx-background-color: #f9f9f9; -fx-border-color: #addfd5; -fx-border-radius: 5;");
+
+        // Format: MONDAY | 10:30:00 - 11:00:00
+        Label info = new Label(String.format("%-10s | %s - %s", 
+            temp.getDay(), temp.getStartTime(), temp.getEndTime()));
+        info.setFont(Font.font("Monospaced", 13)); 
+        
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        Button genBtn = new Button("Generate");
+        genBtn.setStyle("-fx-cursor: hand;");
+        
+        genBtn.setOnAction(e -> {
+            // This calls the helper method we discussed to check duplicates
+            handleTemplateGeneration(professor, temp);
+        });
+
+        row.getChildren().addAll(info, spacer, genBtn);
+        templateList.getChildren().add(row);
+    }
+
+    // Wrap the list in a ScrollPane in case there are many slots
+    ScrollPane scrollPane = new ScrollPane(templateList);
+    scrollPane.setFitToWidth(true);
+    scrollPane.setPrefHeight(400);
+    scrollPane.setStyle("-fx-background-color:transparent;");
+
+    // Add all components to the main layout
+    layout.getChildren().addAll(header, manualInsertBtn, separator, scrollPane);
+    
+    return layout;
+    }
+
+    // helper method for generate slot view
+
+    private static void handleTemplateGeneration(Professor professor, model.SlotTemplate temp) {
+    service.SlotGeneratorService genService = new service.SlotGeneratorService();
+    dao.TimeSlotDAO slotDAO = new dao.TimeSlotDAO(); // Ensure this matches your DAO class name
+    
+    // 1. Convert "MONDAY" string to DayOfWeek and find the upcoming date
+    java.time.DayOfWeek dow = java.time.DayOfWeek.valueOf(temp.getDay().toUpperCase());
+    java.time.LocalDate targetDate = java.time.LocalDate.now().with(java.time.temporal.TemporalAdjusters.nextOrSame(dow));
+    
+    // 2. Parse the start time from the template
+    java.time.LocalTime start = java.time.LocalTime.parse(temp.getStartTime());
+    java.time.LocalTime end = java.time.LocalTime.parse(temp.getEndTime());
+
+    // 3. DUPLICATE CHECK: Call the method we added to your DAO earlier
+    if (slotDAO.isSlotDuplicate(professor.getUserId(), targetDate, start)) {
+        Alert alert = new Alert(Alert.AlertType.WARNING);
+        alert.setTitle("Duplicate Slot");
+        alert.setHeaderText("Scheduling Conflict");
+        alert.setContentText("You already have a slot at " + start + " on " + targetDate + ".");
+        alert.show();
+    } else {
+        // 4. If no duplicate, create the TimeSlot and save to AWS MySQL
+        model.TimeSlot newSlot = new model.TimeSlot(targetDate, professor.getUserId(), start, end);
+        
+        boolean success = slotDAO.addSlot(newSlot);
+        
+        if (success) {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION);
+            alert.setTitle("Success");
+            alert.setHeaderText(null);
+            alert.setContentText("Successfully generated slot for " + targetDate);
+            alert.show();
+        } else {
+            new Alert(Alert.AlertType.ERROR, "Failed to save slot to database.").show();
+        }
+    }
+    }
+
+    // for the manual slot insert button
+
+    private static void showManualInsertDialog(Professor professor) {
+    // 1. Create the Dialog container
+    Dialog<model.TimeSlot> dialog = new Dialog<>();
+    dialog.setTitle("Manual Slot Entry");
+    dialog.setHeaderText("Enter details for a custom time slot");
+
+    // 2. Set up the "Save" and "Cancel" buttons
+    ButtonType saveButtonType = new ButtonType("Save Slot", ButtonBar.ButtonData.OK_DONE);
+    dialog.getDialogPane().getButtonTypes().addAll(saveButtonType, ButtonType.CANCEL);
+
+    // 3. Create the input fields
+    GridPane grid = new GridPane();
+    grid.setHgap(10);
+    grid.setVgap(10);
+    grid.setPadding(new Insets(20, 150, 10, 10));
+
+    DatePicker datePicker = new DatePicker(java.time.LocalDate.now());
+    TextField startTimeField = new TextField("09:00"); 
+    TextField endTimeField = new TextField("09:30");
+
+    grid.add(new Label("Select Date:"), 0, 0);
+    grid.add(datePicker, 1, 0);
+    grid.add(new Label("Start Time (HH:mm):"), 0, 1);
+    grid.add(startTimeField, 1, 1);
+    grid.add(new Label("End Time (HH:mm):"), 0, 2);
+    grid.add(endTimeField, 1, 2);
+
+    dialog.getDialogPane().setContent(grid);
+
+    // 4. Convert the dialog result into a TimeSlot object when Save is clicked
+    dialog.setResultConverter(dialogButton -> {
+        if (dialogButton == saveButtonType) {
+            try {
+                return new model.TimeSlot(
+                    datePicker.getValue(),
+                    professor.getUserId(),
+                    java.time.LocalTime.parse(startTimeField.getText()),
+                    java.time.LocalTime.parse(endTimeField.getText())
+                );
+            } catch (Exception ex) {
+                new Alert(Alert.AlertType.ERROR, "Invalid time format. Please use HH:mm").show();
+                return null;
+            }
+        }
+        return null;
+    });
+
+    // 5. Handle the result (Duplicate Check + Save)
+    dialog.showAndWait().ifPresent(newSlot -> {
+        dao.TimeSlotDAO slotDAO = new dao.TimeSlotDAO();
+        
+        if (slotDAO.isSlotDuplicate(newSlot.getProfessorID(), newSlot.getSlotDate(), newSlot.getStartTime())) {
+            Alert alert = new Alert(Alert.AlertType.WARNING, "Conflict: A slot already exists at this time.");
+            alert.show();
+        } else {
+            boolean success = slotDAO.addSlot(newSlot);
+            if (success) {
+                new Alert(Alert.AlertType.INFORMATION, "Custom slot added successfully!").show();
+            }
+        }
+        });
     }
 
 }

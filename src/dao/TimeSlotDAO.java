@@ -252,6 +252,75 @@ public class TimeSlotDAO {
         return null;
     }
     
+    // to add slots to the DB, specifically the generated slots
+    public boolean addSlot(TimeSlot slot) {
+    String query = """
+        INSERT INTO timeslot (slot_date, professor_id, start_time, end_time, status, 
+                              reserved_count, current_bookings, max_capacity, is_manually_blocked_by_prof)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """;
+
+    try (Connection conn = DBConnection.getConnection();
+         PreparedStatement stmt = conn.prepareStatement(query)) {
+
+        // Set parameters from the TimeSlot object
+        stmt.setDate(1, java.sql.Date.valueOf(slot.getSlotDate()));
+        stmt.setInt(2, slot.getProfessorID());
+        stmt.setTime(3, java.sql.Time.valueOf(slot.getStartTime()));
+        stmt.setTime(4, java.sql.Time.valueOf(slot.getEndTime()));
+        
+        // Using the default values from the object (initialized in constructor)
+        stmt.setString(5, slot.getStatus().name());
+        stmt.setInt(6, slot.getReservedCount());
+        stmt.setInt(7, slot.getCurrentBookings());
+        stmt.setInt(8, slot.getMaxCapacity());
+        stmt.setBoolean(9, slot.getIsManuallyBlockedByProf());
+
+        int rowsInserted = stmt.executeUpdate();
+        return rowsInserted > 0;
+
+    } catch (Exception e) {
+        System.err.println("Error inserting slot into AWS MySQL: " + e.getMessage());
+        e.printStackTrace();
+    }
+    return false;
+    }
+
+
+    // to ensure that a duplicate slot is not being generated
+    /**
+ * Checks the database to see if the professor already has a slot 
+ * at the exact same date and start time.
+ */
+    public boolean isSlotDuplicate(int profId, LocalDate date, LocalTime start) {
+    // We count matching rows; if count > 0, it's a duplicate
+    String query = """
+        SELECT COUNT(*) 
+        FROM timeslot 
+        WHERE professor_id = ? 
+          AND slot_date = ? 
+          AND start_time = ?
+    """;
+
+    try (Connection conn = DBConnection.getConnection();
+         PreparedStatement stmt = conn.prepareStatement(query)) {
+
+        // Set the parameters for the query
+        stmt.setInt(1, profId);
+        stmt.setDate(2, java.sql.Date.valueOf(date));
+        stmt.setTime(3, java.sql.Time.valueOf(start));
+
+        try (ResultSet rs = stmt.executeQuery()) {
+            if (rs.next()) {
+                return rs.getInt(1) > 0;
+            }
+        }
+    } catch (Exception e) {
+        System.err.println("Error checking for duplicate slot: " + e.getMessage());
+        e.printStackTrace();
+    }
+    return false;
+    }
 
     // some of the methods are not used, like the week ones. 
 

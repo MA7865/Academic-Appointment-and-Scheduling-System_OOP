@@ -19,7 +19,7 @@ public class TimeSlot {
     private int max_capacity;
     private boolean is_manually_blocked_by_prof;
 
-    // constructor
+    // constructor for existing slots in the DB. sid is known
     public TimeSlot(int sid, LocalDate sd, int pid, LocalTime st, LocalTime et) {
         slot_id = sid;
         slot_date = sd;
@@ -31,6 +31,22 @@ public class TimeSlot {
         current_bookings = 0;
         max_capacity = 3;
         is_manually_blocked_by_prof = false;
+    }
+
+    // constructor for new slots generated, whose sid is not yet assigned by the DB
+    public TimeSlot(LocalDate sd, int pid, LocalTime st, LocalTime et) {
+    this.slot_id = -1; // using -1 as a placeholder
+    this.slot_date = sd;
+    this.professor_id = pid;
+    this.start_time = st;
+    this.end_time = et;
+    
+    // Default values
+    this.status = TimeSlotStatus.FREE;
+    this.reserved_count = 0;
+    this.current_bookings = 0;
+    this.max_capacity = 3;
+    this.is_manually_blocked_by_prof = false;
     }
     
 
