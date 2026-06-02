@@ -1,5 +1,6 @@
 package view;
 
+import java.time.LocalDate;
 import java.util.List;
 
 import enums.AppointmentReason;
@@ -237,7 +238,7 @@ public class StudentView {
     // ══════════════════════════════════════════════════════════════════
 
     /**
-     * Full appointment history for the student.
+     * Upcoming appointments for the student.
      * Columns: ID, SlotID, Professor, Date, Time, Reason, Status, Booked At.
      * Status column is colour-coded.
      */
@@ -260,17 +261,14 @@ public class StudentView {
                 cellData.getValue().getProfessorName()));
         profCol.setPrefWidth(130);
 
-                List<Appointment> appointments =
+        List<Appointment> appointments =
             appointmentService.getStudentAppointments(student.getUserId());
-
-        // TEMP DEBUG
-        System.out.println("Appointments fetched: " + appointments.size());
+        LocalDate today = LocalDate.now();
+        List<Appointment> upcomingAppointments = new java.util.ArrayList<>();
         for (Appointment a : appointments) {
-            System.out.println("  ID=" + a.getAppointmentId()
-                + " status=" + a.getStatus()
-                + " prof=" + a.getProfessorName()
-                + " date=" + a.getSlotDate()
-                + " start=" + a.getSlotStartTime());
+            if (a.getSlotDate() != null && !a.getSlotDate().isBefore(today)) {
+                upcomingAppointments.add(a);
+            }
         }
 
         // ── Slot date ──
@@ -322,11 +320,11 @@ public class StudentView {
             idCol, slotCol, profCol, dateCol, timeCol, reasonCol, statusCol, bookedCol);
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
 
-        table.getItems().addAll(appointments);
+        table.getItems().addAll(upcomingAppointments);
 
         // ── Count badge ──
         Label countLabel = new Label(
-            appointments.size() + " appointment" + (appointments.size() == 1 ? "" : "s"));
+            upcomingAppointments.size() + " appointment" + (upcomingAppointments.size() == 1 ? "" : "s"));
         countLabel.setFont(Font.font("Segoe UI", 13));
         countLabel.setTextFill(Color.web(TEXT_MUTED));
 
@@ -543,10 +541,19 @@ public class StudentView {
         WaitlistService waitlistService = new WaitlistService();
         List<WaitlistEntry> waitlist =
             waitlistService.getWaitlistByStudent(student.getUserId());
-        table.getItems().addAll(waitlist);
+        LocalDate today = LocalDate.now();
+        List<WaitlistEntry> upcomingWaitlist = new java.util.ArrayList<>();
+        for (WaitlistEntry entry : waitlist) {
+            if (entry.getSlot() != null
+                && entry.getSlot().getSlotDate() != null
+                && !entry.getSlot().getSlotDate().isBefore(today)) {
+                upcomingWaitlist.add(entry);
+            }
+        }
+        table.getItems().addAll(upcomingWaitlist);
 
         Label countLabel = new Label(
-            waitlist.size() + " waitlist entr" + (waitlist.size() == 1 ? "y" : "ies"));
+            upcomingWaitlist.size() + " waitlist entr" + (upcomingWaitlist.size() == 1 ? "y" : "ies"));
         countLabel.setFont(Font.font("Segoe UI", 13));
         countLabel.setTextFill(Color.web(TEXT_MUTED));
 
@@ -645,27 +652,15 @@ public class StudentView {
         table.getColumns().addAll(idCol, slotCol, reasonCol, statusCol, actionCol);
         table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
 
-        // Filter: only include cancellable statuses
-        List<Appointment> all =
-            appointmentService.getStudentAppointments(student.getUserId());
+        // Filter: only include cancellable, upcoming appointments
+        List<Appointment> all = appointmentService.getStudentAppointments(student.getUserId());
+        LocalDate today = LocalDate.now();
         for (Appointment a : all) {
-            if (a.getStatus() == AppointmentStatus.PENDING
-                || a.getStatus() == AppointmentStatus.APPROVED
-                || a.getStatus() == AppointmentStatus.WAITLISTED) {
-                table.getItems().add(a);
-            }
-        }
-        // TEMP DEBUG
-        System.out.println("Cancel view — total appointments: " + all.size());
-        for (Appointment a : all) {
-            System.out.println("  ID=" + a.getAppointmentId() + " status=" + a.getStatus());
-        }
-
-        // Filter: only include cancellable statuses
-        for (Appointment a : all) {
-            if (a.getStatus() == AppointmentStatus.PENDING
-                || a.getStatus() == AppointmentStatus.APPROVED
-                || a.getStatus() == AppointmentStatus.WAITLISTED) {
+            if ((a.getStatus() == AppointmentStatus.PENDING
+                 || a.getStatus() == AppointmentStatus.APPROVED
+                 || a.getStatus() == AppointmentStatus.WAITLISTED)
+                && a.getSlotDate() != null
+                && !a.getSlotDate().isBefore(today)) {
                 table.getItems().add(a);
             }
         }
