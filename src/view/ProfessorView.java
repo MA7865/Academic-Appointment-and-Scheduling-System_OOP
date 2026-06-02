@@ -2,6 +2,8 @@ package view;
 
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.time.LocalDate;
+import java.util.List;
 
 import com.google.gson.Gson;
 
@@ -401,11 +403,19 @@ public class ProfessorView {
 
         // SERVICE CALL: Get all pending appointments for this professor
         AppointmentService service = new AppointmentService();
-        table.getItems().setAll(
-            service.getPendingAppointmentsForProfessor(professor.getUserId()));
+        LocalDate today = LocalDate.now();
+        List<Appointment> pending = new java.util.ArrayList<>();
+        for (Appointment appointment :
+            service.getPendingAppointmentsForProfessor(professor.getUserId())) {
+            if (appointment.getSlotDate() != null
+                && !appointment.getSlotDate().isBefore(today)) {
+                pending.add(appointment);
+            }
+        }
+        table.getItems().setAll(pending);
 
         return wrapInCard("📋  Pending Requests", table,
-            table.getItems().size() + " pending appointment(s)");
+            pending.size() + " pending appointment(s)");
     }
 
 

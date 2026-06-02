@@ -90,7 +90,7 @@ public class AppointmentDAO {
                    t.max_capacity, t.current_bookings
             FROM timeslot t
             JOIN user_details ud ON t.professor_id = ud.user_id
-            WHERE t.status IN ('FREE', 'PARTIALLY_BOOKED')
+            WHERE t.current_bookings < t.max_capacity
             AND t.is_manually_blocked_by_prof = FALSE
             AND t.slot_date >= CURDATE()
             ORDER BY t.slot_date, t.start_time
@@ -126,6 +126,27 @@ public class AppointmentDAO {
         try {
             conn.setAutoCommit(false);//begin transaction
 
+            // Check if student already has an active appointment for this slot
+            String checkDuplicateSQL = """
+                SELECT COUNT(*) as count
+                FROM student_appointment sa
+                JOIN appointment_details ad ON sa.appointment_id = ad.appointment_id
+                WHERE sa.student_id = ? AND sa.slot_id = ?
+                AND ad.status != 'CANCELLED'
+            """;
+            PreparedStatement checkStmt = conn.prepareStatement(checkDuplicateSQL);
+            checkStmt.setInt(1, studentId);
+            checkStmt.setInt(2, slotId);
+            ResultSet checkRs = checkStmt.executeQuery();
+            checkRs.next();
+            int existingCount = checkRs.getInt("count");
+            
+            if (existingCount > 0) {
+                System.out.println("Student " + studentId + " already has an appointment for slot " + slotId);
+                conn.rollback();
+                return false;
+            }
+
             // 1. insert into student_appointment (links student and slot)
             String insertAppt = """
                 INSERT INTO student_appointment (student_id, slot_id)
@@ -154,7 +175,14 @@ public class AppointmentDAO {
                 Timestamp.valueOf(LocalDateTime.now()));
             detailStmt.executeUpdate();
 
-            // booking remains PENDING; count and slot locking happen when a professor approves the appointment
+            // 3. decrement available spots in the slot (reserve the spot)
+            if (!adjustSlotBookingCount(conn, slotId, +1)) {
+                System.out.println("Failed to adjust slot booking count after booking");
+                conn.rollback();
+                return false;
+            }
+
+            // booking is now PENDING; approval will keep this count, cancellation will decrement
             conn.commit();
             return true;
 
@@ -248,48 +276,49 @@ public class AppointmentDAO {
 
     // get all the pending appointments for a professor's slot
     public List<Appointment> getPendingAppointmentsForProfessor(int professorId) {
-    List<Appointment> appointments = new ArrayList<>();
-    //excludes slots that r cancelled or lcoked
-    String sql = "SELECT sa.appointment_id, sa.student_id, sa.slot_id, " +
-                 "ad.status, ad.reason, ad.note, ad.rejection_reason, " +
-                 "ad.created_at, ad.rescheduled_from " +
-                 "FROM student_appointment sa " +
-                 "JOIN appointment_details ad ON sa.appointment_id = ad.appointment_id " +
-                 "JOIN timeslot t ON sa.slot_id = t.slot_id " +
-                 "WHERE t.professor_id = ? " +
-                 "AND ad.status = 'PENDING' " +
-                "AND t.status NOT IN ('CANCELLED', 'LOCKED') ";
-                //  +
-                //  "AND t.slot_date >= CURDATE()";    temporarily allow past pending appts to show for testing
+        List<Appointment> appointments = new ArrayList<>();
+        String sql = "SELECT sa.appointment_id, sa.student_id, sa.slot_id, " +
+                     "ad.status, ad.reason, ad.note, ad.rejection_reason, " +
+                     "ad.created_at, ad.rescheduled_from, t.slot_date " +
+                     "FROM student_appointment sa " +
+                     "JOIN appointment_details ad ON sa.appointment_id = ad.appointment_id " +
+                     "JOIN timeslot t ON sa.slot_id = t.slot_id " +
+                     "WHERE t.professor_id = ? " +
+                     "AND ad.status = 'PENDING' " +
+                     "AND t.status != 'CANCELLED' " +
+                     "AND t.slot_date >= CURDATE()";
 
-    try (Connection conn = DBConnection.getConnection();
-         PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-        stmt.setInt(1, professorId);
-        ResultSet rs = stmt.executeQuery();
+            stmt.setInt(1, professorId);
+            ResultSet rs = stmt.executeQuery();
 
-        while (rs.next()) {
-            Appointment appt = new Appointment(
-                rs.getInt("appointment_id"),
-                rs.getInt("student_id"),
-                rs.getInt("slot_id"),
-                AppointmentStatus.valueOf(rs.getString("status").toUpperCase()),
-                AppointmentReason.valueOf(rs.getString("reason").toUpperCase()),
-                rs.getString("note"),
-                rs.getTimestamp("created_at").toLocalDateTime()
-            );
+            while (rs.next()) {
+                Appointment appt = new Appointment(
+                    rs.getInt("appointment_id"),
+                    rs.getInt("student_id"),
+                    rs.getInt("slot_id"),
+                    AppointmentStatus.valueOf(rs.getString("status").toUpperCase()),
+                    AppointmentReason.valueOf(rs.getString("reason").toUpperCase()),
+                    rs.getString("note"),
+                    rs.getTimestamp("created_at").toLocalDateTime()
+                );
 
-            appt.setRejectionReason(rs.getString("rejection_reason"));
-            appt.setRescheduledFrom((Integer) rs.getObject("rescheduled_from"));
+                appt.setRejectionReason(rs.getString("rejection_reason"));
+                appt.setRescheduledFrom((Integer) rs.getObject("rescheduled_from"));
+                if (rs.getDate("slot_date") != null) {
+                    appt.setSlotDate(rs.getDate("slot_date").toLocalDate());
+                }
 
-            appointments.add(appt);
+                appointments.add(appt);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
-    } catch (SQLException e) {
-        e.printStackTrace();
-    }
 
-    return appointments;
-}
+        return appointments;
+    }
 
     // update appointment status and adjust slot booking counts on approval/cancellation
     public boolean updateAppointmentStatus(int appointmentId, AppointmentStatus newStatus) {
@@ -315,9 +344,11 @@ public class AppointmentDAO {
 
         try {
             conn.setAutoCommit(false);
-            //if moving to approved, increments booking count
+            // Note: if moving to APPROVED from PENDING, booking already reserved the spot (during bookAppointment)
+            // so we do NOT increment again here. Only increment if coming from other non-APPROVED statuses
             if (existing.getStatus() != AppointmentStatus.APPROVED
-                    && newStatus == AppointmentStatus.APPROVED) {
+                    && newStatus == AppointmentStatus.APPROVED
+                    && existing.getStatus() != AppointmentStatus.PENDING) {
                 if (!adjustSlotBookingCount(conn, existing.getSlotId(), +1)) {
                     conn.rollback();
                     return false;

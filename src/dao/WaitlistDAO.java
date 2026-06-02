@@ -228,6 +228,7 @@ public class WaitlistDAO {
                 "JOIN student s ON ue.user_id = s.student_id " +
                 "JOIN timeslot t ON wd.slot_id = t.slot_id " +
                 "WHERE ws.student_id = ? " +
+                "AND t.slot_date >= CURDATE() " +
                 "ORDER BY wd.priority_score DESC, wd.joined_at ASC";
 
         try (Connection conn = DBConnection.getConnection();
